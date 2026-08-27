@@ -20,6 +20,20 @@ local slot3Player = nil
 local velocityIntensity = 320
 local spinEnabled = false
 local multiSpikeEnabled = true
+local isMurderer = false
+
+-- MM2 shows Weapon.Murderer frame when role is assigned — watch that instead of Team (Team is nil in lobby)
+task.spawn(function()
+    local pg = LocalPlayer:WaitForChild("PlayerGui")
+    local mainGui = pg:WaitForChild("MainGUI", 30)
+    if not mainGui then return end
+    local murdererFrame = mainGui:WaitForChild("Game", 10) and mainGui.Game:WaitForChild("Weapon", 10) and mainGui.Game.Weapon:WaitForChild("Murderer", 10)
+    if not murdererFrame then return end
+    isMurderer = murdererFrame.Visible
+    murdererFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+        isMurderer = murdererFrame.Visible
+    end)
+end)
 
 
 -- some knife games rename the tool so just check common names
@@ -53,7 +67,8 @@ local function isPlayerNearby(hrp)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
             local otherHrp = player.Character.HumanoidRootPart
-            if (otherHrp.Position - hrp.Position).Magnitude <= 6 then
+            -- 18 studs: AA cuts off at real chase range, not just melee
+            if (otherHrp.Position - hrp.Position).Magnitude <= 18 then
                 return true
             end
         end
@@ -79,7 +94,7 @@ end
 
 local function isIgnoredPlayerArmed()
     if not ignoreListEnabled then return false end
-    local targets = {slot1Player, slot2Player, slot3Player}
+    local targets = {slot1Player, slot2Player}
     for _, player in ipairs(targets) do
         if player and player.Parent then
             local backpack = player:FindFirstChild("Backpack")
@@ -125,7 +140,12 @@ local function doRollStep(humanoid)
     end)
 end
 
+local desyncRunning = false
+
 local function applyDesync(hrp, humanoid)
+    if desyncRunning then return end
+    desyncRunning = true
+
     local oldVel = hrp.AssemblyLinearVelocity
     local oldCF = hrp.CFrame
     local state = humanoid:GetState()
@@ -143,7 +163,7 @@ local function applyDesync(hrp, humanoid)
     end
 
     if multiSpikeEnabled then
-        task.wait()
+        RunService.RenderStepped:Wait()
         hrp.AssemblyLinearVelocity = Vector3.new(
             -oldVel.X + math.random(-25, 25),
             baseY,
@@ -156,6 +176,8 @@ local function applyDesync(hrp, humanoid)
     if spinEnabled then
         hrp.CFrame = CFrame.new(hrp.Position, oldCF.LookVector + hrp.Position)
     end
+
+    desyncRunning = false
 end
 
 local function stopAA()
@@ -193,6 +215,8 @@ local function startAA()
             doRollStep(hum)
         end
         hadKnifeLastFrame = gotKnife
+
+        if isMurderer then return end
 
         if gotKnife and not isPlayerNearby(hrp) and not isInWater(hum) then
             applyDesync(hrp, hum)
