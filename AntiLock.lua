@@ -23,12 +23,33 @@ local multiSpikeEnabled = true
 local isMurderer = false
 
 -- MM2 shows Weapon.Murderer frame when role is assigned — watch that instead of Team (Team is nil in lobby)
+-- FIX 1: fragile one-shot WaitForChild chain replaced with retry loop
+-- old code would silently bail if GUI loaded slowly, leaving isMurderer=false forever
 task.spawn(function()
     local pg = LocalPlayer:WaitForChild("PlayerGui")
-    local mainGui = pg:WaitForChild("MainGUI", 30)
+    local mainGui = pg:WaitForChild("MainGUI", 60)
     if not mainGui then return end
-    local murdererFrame = mainGui:WaitForChild("Game", 10) and mainGui.Game:WaitForChild("Weapon", 10) and mainGui.Game.Weapon:WaitForChild("Murderer", 10)
+
+    local function tryGetFrame()
+        local game_ = mainGui:FindFirstChild("Game")
+        if not game_ then return nil end
+        local weapon = game_:FindFirstChild("Weapon")
+        if not weapon then return nil end
+        return weapon:FindFirstChild("Murderer")
+    end
+
+    local murdererFrame
+    local attempts = 0
+    repeat
+        murdererFrame = tryGetFrame()
+        if not murdererFrame then
+            task.wait(0.5)
+            attempts += 1
+        end
+    until murdererFrame or attempts >= 20
+
     if not murdererFrame then return end
+
     isMurderer = murdererFrame.Visible
     murdererFrame:GetPropertyChangedSignal("Visible"):Connect(function()
         isMurderer = murdererFrame.Visible
@@ -127,7 +148,10 @@ local function makeSpike(baseY)
     return Vector3.new(x, baseY, z)
 end
 
+-- FIX 2: doRollStep had no murderer guard — this was the "stuck as murder" bug
+-- knife pickup fires doRollStep, which then fights against murderer movement
 local function doRollStep(humanoid)
+    if isMurderer then return end
     task.spawn(function()
         local dir = Vector3.new(rsign(), 0, rsign()).Unit
         local t = tick()
@@ -142,9 +166,16 @@ end
 
 local desyncRunning = false
 
+-- FIX 3: no timeout on desyncRunning — if RenderStepped stalled it locked forever
+-- FIX 4: stopped-player multiplier was 1.25x, way too aggressive, dialed to 1.05x
 local function applyDesync(hrp, humanoid)
     if desyncRunning then return end
     desyncRunning = true
+
+    -- hard fallback: reset flag after 200ms regardless
+    task.delay(0.2, function()
+        desyncRunning = false
+    end)
 
     local oldVel = hrp.AssemblyLinearVelocity
     local oldCF = hrp.CFrame
@@ -152,7 +183,7 @@ local function applyDesync(hrp, humanoid)
     local jumping = state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall
     local stopped = humanoid.MoveDirection.Magnitude == 0
 
-    local mag = stopped and (velocityIntensity * 1.25) or velocityIntensity
+    local mag = stopped and (velocityIntensity * 1.05) or velocityIntensity
     local baseY = jumping and (mag * rsign() * 0.78) or 0
 
     hrp.AssemblyLinearVelocity = makeSpike(baseY)
@@ -180,11 +211,17 @@ local function applyDesync(hrp, humanoid)
     desyncRunning = false
 end
 
+-- FIX 5: throttle — running applyDesync every Heartbeat (~60/sec) caused the
+-- crazy visible jitter. Now fires every N frames (~15/sec), still effective
+local DESYNC_INTERVAL = 4
+local heartbeatTick = 0
+
 local function stopAA()
     if velocityConnection then
         velocityConnection:Disconnect()
         velocityConnection = nil
     end
+    heartbeatTick = 0
 end
 
 local function startAA()
@@ -202,6 +239,7 @@ local function startAA()
         local char = LocalPlayer.Character
         if not (char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid")) then
             hadKnifeLastFrame = false
+            heartbeatTick = 0
             return
         end
 
@@ -217,6 +255,10 @@ local function startAA()
         hadKnifeLastFrame = gotKnife
 
         if isMurderer then return end
+
+        heartbeatTick += 1
+        if heartbeatTick < DESYNC_INTERVAL then return end
+        heartbeatTick = 0
 
         if gotKnife and not isPlayerNearby(hrp) and not isInWater(hum) then
             applyDesync(hrp, hum)
@@ -253,6 +295,12 @@ end)
 aaSection:AddToggle("Multi-Spike", function(bool)
     multiSpikeEnabled = bool
     shared.Notify("Multi-Spike " .. (bool and "On" or "Off"), 2)
+end)
+
+-- FIX 6: expose interval as a slider so users can tune jitter vs smoothness
+-- lower = more aggressive AA, higher = smoother movement
+aaSection:AddSlider("Desync Interval (frames)", 1, 12, DESYNC_INTERVAL, function(val)
+    DESYNC_INTERVAL = val
 end)
 
 aaSection:AddSlider("Intensity", 100, 600, velocityIntensity, function(val)
