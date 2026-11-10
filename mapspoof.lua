@@ -14,11 +14,20 @@ local function path(root,...)
 end
 local function boards()
     local rows={}
-    local folder=path(workspace,"Lobby","VotePads")
-    for _,model in ipairs(folder and folder:GetChildren() or {}) do
+    local parent,folder
+    for _,model in ipairs(workspace:GetChildren()) do
+        local pads=model:FindFirstChild("VotePads")
+        if pads then
+            if model:FindFirstChild("VotePad1") then parent=model;folder=pads;break
+            elseif pads:FindFirstChild("VotePad1") then parent=pads;folder=pads;break end
+        end
+    end
+    for index=1,3 do
+        local model=parent and parent:FindFirstChild("VotePad"..index)
+        if not model then continue end
         local info=model:FindFirstChild("VoteInfoGui")
         local label=path(info,"Container","MapName")
-        local pad=model:FindFirstChild("Pad")
+        local pad=folder:FindFirstChild("Detector"..index) or model:FindFirstChild("Pad")
         if info and info.Enabled and label and label.Visible and label.Text~="" and pad and pad:IsA("BasePart") and pad.CanTouch then
             table.insert(rows,{name=label.Text,pad=pad,votes=path(info,"Container","Votes")})
         end
@@ -87,14 +96,20 @@ local function launch(row)
             if hum.RigType==Enum.HumanoidRigType.R6 then
                 local leg=char:FindFirstChild("Left Leg");clearance+=leg and leg.Size.Y or 2
             end
-            root.CFrame=row.pad.CFrame*CFrame.new(0,row.pad.Size.Y/2+clearance,0)
+            local destination=row.pad.Name:match("^Detector")
+                and CFrame.new(row.pad.Position-Vector3.new(0,1.2,0))
+                or row.pad.CFrame*CFrame.new(0,row.pad.Size.Y/2+clearance,0)
+            root.CFrame=destination
             root.AssemblyLinearVelocity=Vector3.zero
             local start=os.clock()
             local increased=false
             repeat
                 Run.Heartbeat:Wait()
+                if root.Parent and (root.Position-destination.Position).Magnitude>3.5 and valid() then
+                    root.CFrame=destination;root.AssemblyLinearVelocity=Vector3.zero
+                end
                 local current=count();increased=before~=nil and current~=nil and current>before
-            until not valid() or (increased and os.clock()-start>=.12) or os.clock()-start>=.8
+            until not valid() or (increased and os.clock()-start>=.18) or os.clock()-start>=1.2
             state:SetValue(increased and "Board count increased · vote attempt completed" or "Attempt completed · acceptance unconfirmed")
         end)
         if root and root.Parent and origin and lp.Character==char and hum and hum.Health>0 and lp:GetAttribute("Alive")==false then
@@ -115,9 +130,14 @@ local connection=Run.Heartbeat:Connect(function(dt)
         progress:SetValue("Attempts this vote: 0")
         state:SetValue(current=="" and "Voting closed" or "Voting open · select a preferred map")
     end
-    if busy or not enabled or lp:GetAttribute("Alive")~=false then return end
+    if busy then return end
+    if not enabled then state:SetValue("Auto vote OFF · enable it to start");return end
+    if preferred=="" then state:SetValue("Select a preferred map first");return end
+    if current=="" then state:SetValue("Voting closed · waiting");return end
+    if lp:GetAttribute("Alive")~=false then state:SetValue("Waiting for lobby · no resets during a round");return end
     if used>0 and (not boost or used>=limit+1) then return end
-    for _,row in ipairs(rows) do if row.name==preferred then launch(row);break end end
+    for _,row in ipairs(rows) do if row.name==preferred then launch(row);return end end
+    state:SetValue("Preferred map unavailable this vote")
 end)
 env.SynxMapAddonCleanup=function()running=false;enabled=false;epoch+=1;connection:Disconnect()end
 shared.Notify("Synx MM2 map addon loaded. Auto vote is OFF.",3)
