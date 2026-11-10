@@ -94,3 +94,30 @@ local function launch(row)
             repeat
                 Run.Heartbeat:Wait()
                 local current=count();increased=before~=nil and current~=nil and current>before
+            until not valid() or (increased and os.clock()-start>=.12) or os.clock()-start>=.8
+            state:SetValue(increased and "Board count increased · vote attempt completed" or "Attempt completed · acceptance unconfirmed")
+        end)
+        if root and root.Parent and origin and lp.Character==char and hum and hum.Health>0 and lp:GetAttribute("Alive")==false then
+            root.CFrame=origin;root.AssemblyLinearVelocity=Vector3.zero;root.AssemblyAngularVelocity=Vector3.zero
+        end
+        if not ok then warn("Synx map addon: ",err);state:SetValue("Vote attempt failed") end
+        busy=false
+    end)
+end
+local elapsed=0
+local connection=Run.Heartbeat:Connect(function(dt)
+    elapsed+=dt;if elapsed<.1 or not running then return end;elapsed=0
+    local rows=boards();local current=key(rows)
+    if current~=signature then
+        signature=current;epoch+=1;used=0
+        local names={}for _,row in ipairs(rows) do table.insert(names,row.name) end
+        dropdown:ChangeItems(names)
+        progress:SetValue("Attempts this vote: 0")
+        state:SetValue(current=="" and "Voting closed" or "Voting open · select a preferred map")
+    end
+    if busy or not enabled or lp:GetAttribute("Alive")~=false then return end
+    if used>0 and (not boost or used>=limit+1) then return end
+    for _,row in ipairs(rows) do if row.name==preferred then launch(row);break end end
+end)
+env.SynxMapAddonCleanup=function()running=false;enabled=false;epoch+=1;connection:Disconnect()end
+shared.Notify("Synx MM2 map addon loaded. Auto vote is OFF.",3)
