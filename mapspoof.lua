@@ -1,4 +1,5 @@
 -- Synx MM2 map voting addon for Overdrive H. Load after Overdrive H.
+local ADDON_VERSION="1.1.0"
 local shared=assert(odh_shared_plugins,"Load Overdrive H before this addon")
 local env=getgenv and getgenv() or _G
 if env.SynxMapAddonCleanup then env.SynxMapAddonCleanup() end
@@ -40,8 +41,9 @@ local function key(rows)
     return table.concat(names,"|")
 end
 -- Icon uses the documentation's sample repository path; replace with your own uploaded icon.
-local tab=shared.CreateTab("MM2 Maps","/axioriasolver/testplugin/refs/heads/main/icon")
+local tab=shared.CreateTab("MM2 Maps v"..ADDON_VERSION,"/axioriasolver/testplugin/refs/heads/main/icon")
 local voting=tab:AddSection("Map preference","SYNX · MM2")
+voting:AddLabel("Loaded version: "..ADDON_VERSION)
 voting:AddParagraph("How it works","Select a map and enable Auto vote. Reset boost respawns you to attempt extra votes while voting is open. Attempts are not guaranteed accepted votes.")
 local state=voting:AddLabel("Voting closed",true)
 local selection=voting:AddLabel("Preferred map: none",true)
@@ -52,10 +54,14 @@ voting:AddTextBox("Preferred map name (optional)",function(name)
     name=name:match("^%s*(.-)%s*$")
     preferred=name;selection:SetValue("Preferred map: "..(name~="" and name or "none"))
 end)
-voting:AddToggle("Auto vote",function(value)enabled=value end)
+local autoToggle=voting:AddToggle("Auto vote",function(value)enabled=value end)
 local extras=tab:AddSection("Reset boost","OPTIONAL")
 extras:AddParagraph("Extra attempts","Resets your character after the first vote. Runs only in the lobby. Stops when voting closes or you disable it.")
-extras:AddToggle("Reset to vote again",function(value)boost=value end)
+extras:AddToggle("Reset to vote again",function(value)
+    boost=value
+    if value and not enabled then autoToggle() end
+    if value and preferred=="" then shared.Notify("Select a preferred map to start reset voting.",0) end
+end)
 extras:AddSlider("Extra reset limit",5,20,5,function(value)limit=math.clamp(math.floor(value),5,20)end)
 local progress=extras:AddLabel("Attempts this vote: 0",true)
 local function launch(row)
@@ -140,4 +146,4 @@ local connection=Run.Heartbeat:Connect(function(dt)
     state:SetValue("Preferred map unavailable this vote")
 end)
 env.SynxMapAddonCleanup=function()running=false;enabled=false;epoch+=1;connection:Disconnect()end
-shared.Notify("Synx MM2 map addon loaded. Auto vote is OFF.",3)
+shared.Notify("Synx MM2 Maps v"..ADDON_VERSION.." loaded. Auto vote is OFF.",3)
