@@ -1,5 +1,5 @@
 -- Synx MM2 map voting addon for Overdrive H. Load after Overdrive H.
-local ADDON_VERSION="1.1.0"
+local ADDON_VERSION="1.1.2"
 local shared=assert(odh_shared_plugins,"Load Overdrive H before this addon")
 local env=getgenv and getgenv() or _G
 if env.SynxMapAddonCleanup then env.SynxMapAddonCleanup() end
@@ -41,10 +41,10 @@ local function key(rows)
     return table.concat(names,"|")
 end
 -- Icon uses the documentation's sample repository path; replace with your own uploaded icon.
-local tab=shared.CreateTab("MM2 Maps v"..ADDON_VERSION,"/axioriasolver/testplugin/refs/heads/main/icon")
-local voting=tab:AddSection("Map preference","SYNX · MM2")
+local tab=shared.CreateTab("Map spoofer v"..ADDON_VERSION,"/axioriasolver/testplugin/refs/heads/main/icon")
+local voting=tab:AddSection("Map spoofer","SYNX · MM2")
 voting:AddLabel("Loaded version: "..ADDON_VERSION)
-voting:AddParagraph("How it works","Select a map and enable Auto vote. Reset boost respawns you to attempt extra votes while voting is open. Attempts are not guaranteed accepted votes.")
+voting:AddParagraph("How it works","Pick a map and enable Map spoofer to attempt extra votes through respawns. Voting time and server acceptance determine the result.")
 local state=voting:AddLabel("Voting closed",true)
 local selection=voting:AddLabel("Preferred map: none",true)
 local dropdown=voting:AddDropdown("Available maps",{},function(name)
@@ -54,15 +54,15 @@ voting:AddTextBox("Preferred map name (optional)",function(name)
     name=name:match("^%s*(.-)%s*$")
     preferred=name;selection:SetValue("Preferred map: "..(name~="" and name or "none"))
 end)
-local autoToggle=voting:AddToggle("Auto vote",function(value)enabled=value end)
-local extras=tab:AddSection("Reset boost","OPTIONAL")
+local autoToggle=voting:AddToggle("Auto vote selected map",function(value)enabled=value end)
+local extras=tab:AddSection("Extra votes","MAP SPOOFER")
 extras:AddParagraph("Extra attempts","Resets your character after the first vote. Runs only in the lobby. Stops when voting closes or you disable it.")
-extras:AddToggle("Reset to vote again",function(value)
+extras:AddToggle("Enable Map spoofer",function(value)
     boost=value
     if value and not enabled then autoToggle() end
     if value and preferred=="" then shared.Notify("Select a preferred map to start reset voting.",0) end
 end)
-extras:AddSlider("Extra reset limit",5,20,5,function(value)limit=math.clamp(math.floor(value),5,20)end)
+extras:AddSlider("Extra vote attempts",5,20,5,function(value)limit=math.clamp(math.floor(value),5,20)end)
 local progress=extras:AddLabel("Attempts this vote: 0",true)
 local function launch(row)
     busy=true
@@ -102,9 +102,19 @@ local function launch(row)
             if hum.RigType==Enum.HumanoidRigType.R6 then
                 local leg=char:FindFirstChild("Left Leg");clearance+=leg and leg.Size.Y or 2
             end
-            local destination=row.pad.Name:match("^Detector")
-                and CFrame.new(row.pad.Position-Vector3.new(0,1.2,0))
-                or row.pad.CFrame*CFrame.new(0,row.pad.Size.Y/2+clearance,0)
+            -- Pad is a tall, noncollidable voting volume, not the floor surface.
+            -- Locate the actual supporting floor rather than standing atop that volume.
+            local params=RaycastParams.new()
+            params.FilterType=Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances={char,row.pad.Parent}
+            params.RespectCanCollide=true
+            local floor=workspace:Raycast(row.pad.Position,Vector3.new(0,-30,0),params)
+            if not floor or floor.Normal.Y<.6 then
+                state:SetValue("No floor found beneath voting pad · skipping")
+                return
+            end
+            local destination=CFrame.new(floor.Position+Vector3.new(0,clearance,0))
+                *(root.CFrame-root.Position)
             root.CFrame=destination
             root.AssemblyLinearVelocity=Vector3.zero
             local start=os.clock()
@@ -146,4 +156,4 @@ local connection=Run.Heartbeat:Connect(function(dt)
     state:SetValue("Preferred map unavailable this vote")
 end)
 env.SynxMapAddonCleanup=function()running=false;enabled=false;epoch+=1;connection:Disconnect()end
-shared.Notify("Synx MM2 Maps v"..ADDON_VERSION.." loaded. Auto vote is OFF.",3)
+shared.Notify("Synx Map spoofer v"..ADDON_VERSION.." loaded. Auto vote is OFF.",3)
