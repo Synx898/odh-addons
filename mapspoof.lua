@@ -1,5 +1,5 @@
 -- Synx MM2 map voting addon for Overdrive H. Load after Overdrive H.
-local ADDON_VERSION="1.1.2"
+local ADDON_VERSION="1.1.3"
 local shared=assert(odh_shared_plugins,"Load Overdrive H before this addon")
 local env=getgenv and getgenv() or _G
 if env.SynxMapAddonCleanup then env.SynxMapAddonCleanup() end
@@ -9,6 +9,24 @@ local lp=Players.LocalPlayer
 local running,enabled,boost,busy=true,false,false,false
 local preferred,signature,used,epoch="","",0,0
 local limit=5
+local hiddenFades={}
+local function restoreFades()
+    for fade,enabled in pairs(hiddenFades) do
+        if fade.Parent then fade.Enabled=enabled end
+    end
+    table.clear(hiddenFades)
+end
+local function hideFades()
+    local pg=lp:FindFirstChildOfClass("PlayerGui")
+    if not pg then return end
+    for _,name in ipairs({"SpawnFade","CameraFade","Fade"}) do
+        local fade=pg:FindFirstChild(name)
+        if fade and fade:IsA("ScreenGui") then
+            if hiddenFades[fade]==nil then hiddenFades[fade]=fade.Enabled end
+            fade.Enabled=false
+        end
+    end
+end
 local function path(root,...)
     for _,name in ipairs({...}) do root=root and root:FindFirstChild(name) end
     return root
@@ -139,6 +157,12 @@ local elapsed=0
 local connection=Run.Heartbeat:Connect(function(dt)
     elapsed+=dt;if elapsed<.1 or not running then return end;elapsed=0
     local rows=boards();local current=key(rows)
+    if enabled and boost and current~="" and preferred~="" and lp:GetAttribute("Alive")==false
+        and (busy or used<limit+1) then
+        local selected=false
+        for _,row in ipairs(rows) do if row.name==preferred then selected=true;break end end
+        if selected then hideFades() else restoreFades() end
+    else restoreFades() end
     if current~=signature then
         signature=current;epoch+=1;used=0
         local names={}for _,row in ipairs(rows) do table.insert(names,row.name) end
@@ -155,5 +179,7 @@ local connection=Run.Heartbeat:Connect(function(dt)
     for _,row in ipairs(rows) do if row.name==preferred then launch(row);return end end
     state:SetValue("Preferred map unavailable this vote")
 end)
-env.SynxMapAddonCleanup=function()running=false;enabled=false;epoch+=1;connection:Disconnect()end
+env.SynxMapAddonCleanup=function()
+    running=false;enabled=false;epoch+=1;connection:Disconnect();restoreFades()
+end
 shared.Notify("Synx Map spoofer v"..ADDON_VERSION.." loaded. Auto vote is OFF.",3)
